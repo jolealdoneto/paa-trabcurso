@@ -1,0 +1,305 @@
+<html>
+    <head>
+        <script type="text/javascript" src="lib/sigmajs/sigma.require.js"></script>
+        <script type="text/javascript" src="lib/priorityqueue.js"></script>
+
+        <style>
+          #graph-container {
+            top: 100px;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            position: absolute;
+          }
+        </style>
+    </head>
+    <body>
+        <div id="container">
+          <div id="graph-container"></div>
+        </div>
+        <script>
+
+        function changeColor() {
+            var network = generateNetwork(10, 2),
+                G = network.graph,
+                nodeToSorv = {},
+                timeBefore = (new Date()).getTime();
+
+            //G.graph.nodes().forEach(function(source) {
+            //    nodeToSorv[source.id] = dijkstraBaseline(G.graph.nodes(), G.graph.edges(), network.sorvedores, source);
+            //});
+            //console.log("Dikstra 1: " + ((new Date()).getTime() - timeBefore));
+
+            //timeBefore = (new Date()).getTime();
+            setTimeout(function() {
+                dijkstraMelhoradoAnimation(G.graph.nodes(), G.graph.edges(), network.sorvedores, Number.MAX_VALUE, G);
+            });
+            //console.log("Dikstra 2: " + ((new Date()).getTime() - timeBefore));
+
+            console.log(G.graph.nodes()[0]);
+
+            G.refresh();
+        }
+
+        function generateNetwork(size, nSorv) {
+            var g = randomNetwork(size),
+                s = new sigma({
+                graph: g,
+                container: 'graph-container'
+            });
+
+            function createSorvedores() {
+                var nodes = s.graph.nodes(),
+                    initial = nodes.length / nSorv,
+                    i = 0,
+                    sorvedores = [];
+
+                for (var i = 0; i < nSorv; i++) {
+                    sorvedores.push(nodes[Math.floor(initial/2 + i * initial)]);
+                }
+
+                sorvedores.forEach(function(sorv) {
+                    sorv.color = '#3b4ac2';
+                });
+
+                s.refresh();
+
+                return sorvedores;
+            }
+
+            return {
+                graph: s,
+                sorvedores: createSorvedores()
+            };
+        }
+
+        function getEdgeWeight(node1, node2, nodes) {
+            var n1 = nodes.filter(function(nd) { return nd.id == node1; })[0],
+                n2 = nodes.filter(function(nd) { return nd.id == node2; })[0];
+
+                return Math.sqrt((n1.x - n2.x) * (n1.x - n2.x) + (n1.y - n2.y) * (n1.y - n2.y));
+        }
+
+        function randomNetwork(size) {
+            var N = Math.floor(size * 2/3) || 100,
+                g = {
+                  nodes: [],
+                  edges: []
+                };
+
+            for (var i = 0; i < N; i++) {
+                g.nodes.push({
+                    id: 'n' + i,
+                    x: i / N,
+                    y: 0.5 + (Math.random() > 0.5 ? 1 : -1) * (Math.random() % 0.2),
+                    size: 2,
+                    color: '#000'
+                });
+            }
+
+            for (var i = 0; i < N-1; i++) {
+                console.log('w:' + getEdgeWeight('n'+i, 'n'+(i+1), g.nodes));
+                g.edges.push({
+                    id: 'e' + i,
+                    source: 'n' + i,
+                    target: 'n' + (i+1),
+                    weight: getEdgeWeight('n'+i, 'n'+(i+1), g.nodes),
+                    size: 2,
+                    color: '#ccc'
+                });
+            }
+
+            for (var i = N; i < size; i++) {
+                g.nodes.push({
+                    id: 'n' + i,
+                    x: Math.random(),
+                    y: 0.5 + (Math.random() > 0.5 ? 1 : -1) * (Math.random() % 0.3),
+                    size: 2,
+                    color: '#000'
+                });
+
+                var r = Math.floor(1 + Math.random()*10);
+                for (var j = 0; j < r; j++) {
+                    var t = 'n' + (Math.floor(Math.random() * N));
+                    g.edges.push({
+                        id: 'e' + i +'|'+j,
+                        source: 'n' + i,
+                        target: t,
+                        size: 2,
+                        weight: getEdgeWeight('n'+i, t, g.nodes),
+                        color: '#ccc'
+                    });
+                }
+            }
+            return g;
+        }
+
+        function dijkstraBaseline(nodeList, edgeList, sorvedores, s) {
+            var nodes = [].concat(nodeList),
+                edges = [].concat(edgeList);
+
+            nodes.forEach(function(node) {
+                node.root = null;
+                node.weight = Number.MAX_VALUE;
+            });
+            s.weight = 0;
+
+            while (nodes.length > 0) {
+                var nodei = findSmallestAndRemove(nodes);
+
+                var neighbors = getAllNeighbors(nodeList, edgeList, nodei);
+                neighbors.forEach(function(nodeu) {
+                    if (nodei.weight + nodeu.edge.weight < nodeu.node.weight) {
+                        nodeu.node.weight = nodei.weight + nodeu.edge.weight;
+                        nodeu.node.root = nodei;
+                    }
+                });
+            }
+
+            var minSorv = null;
+            sorvedores.forEach(function(s) {
+                if (minSorv == null || s.weight < minSorv.weight) {
+                    minSorv = s;
+                }
+            });
+
+            return minSorv;
+        }
+        function dijkstraMelhorado(nodeList, edgeList, sorvedores, threshold, G) {
+            var nodes = [],
+                edges = [].concat(edgeList);
+            threshold = threshold || Number.MAX_VALUE;
+
+            nodeList.forEach(function(node) {
+                node.root = null;
+                node.weight = Number.MAX_VALUE;
+                node.visitado = {};
+            });
+
+            sorvedores.forEach(function(sorv) {
+                sorv.weight = 0;
+                sorv.color = '#002200';
+                sorv.visitado[sorv.id] = true;
+                nodes = [sorv];
+
+                while (nodes.length > 0) {
+                    var nodei = findSmallestAndRemove(nodes);
+                    nodei.visitado[sorv.id] = true;
+                    var neighbors = getAllNeighbors(nodeList, edgeList, nodei);
+                    neighbors.forEach(function(nodeu) {
+                        if (nodei.weight + nodeu.edge.weight < nodeu.node.weight) {
+                            nodeu.node.weight = nodei.weight + nodeu.edge.weight;
+                            nodeu.node.root = nodei;
+
+                            if (nodeu.node.weight <= threshold && nodeu.node.visitado[sorv.id] !== true) {
+                                nodes.push(nodeu.node);
+                            }
+                        }
+                    });
+                }
+            });
+
+            return nodeList;
+        }
+
+        var colorSorv = [ '#00ffaa', '#aaff00' ],
+            delay = 800;
+        function dijkstraMelhoradoAnimation(nodeList, edgeList, sorvedores, threshold, G) {
+            var nodes = [],
+                edges = [].concat(edgeList);
+            threshold = threshold || Number.MAX_VALUE;
+
+            nodeList.forEach(function(node) {
+                node.root = null;
+                node.weight = Number.MAX_VALUE;
+                node.visitado = {};
+            });
+
+            var i = 0;
+            function sorvLoop(i) {
+                var sorv = sorvedores[i];
+                sorv.weight = 0;
+                sorv.color = '#3e6bc2';
+                sorv.label = '0';
+                sorv.visitado[sorv.id] = true;
+                nodes = [sorv];
+
+                function loopNodes() {
+                    if (nodes.length == 0) {
+                        return;
+                    }
+                    var nodei = findSmallestAndRemove(nodes);
+                    nodei.visitado[sorv.id] = true;
+                    var neighbors = getAllNeighbors(nodeList, edgeList, nodei);
+                    neighbors.forEach(function(nodeu) {
+                        nodeu.edge.color = colorSorv[sorvedores.indexOf(sorv)];
+                        if (nodei.weight + nodeu.edge.weight < nodeu.node.weight) {
+                            nodeu.node.weight = nodei.weight + nodeu.edge.weight;
+                            nodeu.node.root = nodei;
+                            nodeu.node.label = '' + (nodeu.node.weight*100).toFixed(0);
+                            if (nodeu.node.id != sorv.id) {
+                                nodeu.node.color = colorSorv[sorvedores.indexOf(sorv)];
+                            }
+                            G.refresh();
+
+                            if (nodeu.node.weight <= threshold && nodeu.node.visitado[sorv.id] !== true) {
+                                nodes.push(nodeu.node);
+                            }
+                        }
+                    });
+                    setTimeout(loopNodes, delay);
+                    G.refresh();
+                }
+                loopNodes();
+                if (i < sorvedores.length-1) {
+                    setTimeout(function() { sorvLoop(i+1); }, delay * nodeList.length + 1000);
+                }
+                G.refresh();
+            }
+            sorvLoop(0);
+
+            return nodeList;
+        }
+
+        function findSmallestAndRemove(nodeList) {
+            var minNode = null;
+            nodeList.forEach(function(node) {
+                if (minNode == null || minNode.weight > node.weight) {
+                    minNode = node;
+                }
+            });
+
+            if (minNode != null) {
+                nodeList.splice(nodeList.indexOf(minNode), 1);
+            }
+
+            return minNode;
+        }
+
+        function getAllNeighbors(nodes, edges, s) {
+            return edges.filter(function(e) {
+                return e.source == s.id || e.target == s.id;
+            }).map(function(edge) {
+                return { 
+                    node: nodes.filter(function(node) {
+                        return (node.id == edge.target || node.id == edge.source) && node.id != s.id;
+                    })[0],
+                    edge: edge
+                };
+            });
+        }
+
+        function sleep(milliseconds) {
+          var start = new Date().getTime();
+          for (var i = 0; i < 1e7; i++) {
+            if ((new Date().getTime() - start) > milliseconds){
+              break;
+            }
+          }
+        }
+
+        </script>
+        <button onclick="changeColor()">Color</button>
+
+    </body>
+</html>
